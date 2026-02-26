@@ -18,7 +18,7 @@ MEMBER_ID        = "ADH11A4665"
 CSRF_TOKEN       = "cJACSPoXtnKMRK0t4JTB6aUhdW1m0nwWa7PmMODV"  # update when expired
 
 TELEGRAM_TOKEN   = "7700287699:AAGEq7AeC6bcWcUK8g5rkz-oECmHRJFuWLQ"    # from @BotFather  (step 1 below)
-TELEGRAM_CHAT_ID = "1354012677"      # from @userinfobot (step 2 below)
+TELEGRAM_CHAT_ID = "@BadmintonSlots"      # from @userinfobot (step 2 below)
 
 SKIP_SLOT   = "05:00 AM - 06:00 AM"   # never alert on this slot
 POLL_EVERY  = 15                       # minutes
