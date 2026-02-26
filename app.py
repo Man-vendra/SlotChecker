@@ -21,7 +21,7 @@ TELEGRAM_TOKEN   = "7700287699:AAGEq7AeC6bcWcUK8g5rkz-oECmHRJFuWLQ"    # from @B
 TELEGRAM_CHAT_ID = "@BadmintonSlots"      # from @userinfobot (step 2 below)
 
 SKIP_SLOT   = "05:00 AM - 06:00 AM"   # never alert on this slot
-POLL_EVERY  = 15                       # minutes
+POLL_EVERY  = 30                      # minutes
 STATE_FILE  = Path("seen_slots.json")
 # ───────────────────────────────────────────────────────────────────────────────
 
