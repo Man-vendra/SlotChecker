@@ -22,7 +22,7 @@ MEMBER_ID        = "ADH11A4665"
 CSRF_TOKEN       = "MxSv0NCdk3sBmukEmShugroUAUeMfi7l25ujSGFj"
 
 TELEGRAM_TOKEN   = "7700287699:AAGEq7AeC6bcWcUK8g5rkz-oECmHRJFuWLQ"
-TELEGRAM_CHAT_ID = "@BadmintonSlots2"
+TELEGRAM_CHAT_ID = "@BadmintonSlots"
 
 SKIP_SLOT        = "05:00 AM - 06:00 AM"
 POLL_EVERY       = 30
