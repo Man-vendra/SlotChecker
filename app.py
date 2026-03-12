@@ -1,28 +1,32 @@
-
 #!/usr/bin/env python3
 """
 MCGM RecZone — Slot Monitor
 Polls every 30 minutes. Sends a Telegram message when a NEW slot
 appears that is NOT the 05:00 AM - 06:00 AM slot.
+Any message in the group triggers a fresh fetch of ALL available slots.
 """
 
 import json
+import asyncio
 import time
+import threading
 import requests
 import schedule
 from datetime import datetime
 from pathlib import Path
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# ── ⚙️  Config — fill these in ─────────────────────────────────────────────────
+# ── ⚙️  Config ─────────────────────────────────────────────────────────────────
 MEMBER_ID        = "ADH11A4665"
-CSRF_TOKEN       = "cJACSPoXtnKMRK0t4JTB6aUhdW1m0nwWa7PmMODV"  # update when expired
+CSRF_TOKEN       = "cJACSPoXtnKMRK0t4JTB6aUhdW1m0nwWa7PmMODV"
 
-TELEGRAM_TOKEN   = "7700287699:AAGEq7AeC6bcWcUK8g5rkz-oECmHRJFuWLQ"    # from @BotFather  (step 1 below)
-TELEGRAM_CHAT_ID = "@BadmintonSlots2"      # from @userinfobot (step 2 below)
+TELEGRAM_TOKEN   = "7700287699:AAGEq7AeC6bcWcUK8g5rkz-oECmHRJFuWLQ"
+TELEGRAM_CHAT_ID = "@BadmintonSlots2"
 
-SKIP_SLOT   = "05:00 AM - 06:00 AM"   # never alert on this slot
-POLL_EVERY  = 30                      # minutes
-STATE_FILE  = Path("seen_slots.json")
+SKIP_SLOT  = "05:00 AM - 06:00 AM"
+POLL_EVERY = 30
+STATE_FILE = Path("seen_slots.json")
 # ───────────────────────────────────────────────────────────────────────────────
 
 HEADERS = {
@@ -47,7 +51,6 @@ HEADERS = {
 def ts() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-
 def load_seen() -> set:
     if STATE_FILE.exists():
         try:
@@ -56,12 +59,11 @@ def load_seen() -> set:
             pass
     return set()
 
-
 def save_seen(seen: set):
     STATE_FILE.write_text(json.dumps(list(seen)))
 
 
-# ── Telegram ───────────────────────────────────────────────────────────────────
+# ── Telegram push ──────────────────────────────────────────────────────────────
 
 def send_telegram(message: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -80,7 +82,7 @@ def send_telegram(message: str):
         print(f"[{ts()}] ❌ Telegram send failed: {e}")
 
 
-# ── API fetch ──────────────────────────────────────────────────────────────────
+# ── API call ───────────────────────────────────────────────────────────────────
 
 def fetch_slots() -> list | None:
     url = (
@@ -104,7 +106,44 @@ def fetch_slots() -> list | None:
         return None
 
 
-# ── Core check ─────────────────────────────────────────────────────────────────
+# ── Manual fetch — ignores seen_slots.json, returns ALL open slots ─────────────
+
+def fetch_all_slots() -> str:
+    slots = fetch_slots()
+
+    if slots is None:
+        return "❌ <b>Fetch failed.</b> Could not reach the RecZone API."
+
+    available = []
+    for s in slots:
+        if s.get("isBooked"):
+            continue
+        slot_time = s.get("slot", "")
+        if slot_time == SKIP_SLOT:
+            continue
+
+        available.append({
+            "date":   s.get("dateOfBooking", {}).get("formatted", "?"),
+            "slot":   slot_time,
+            "court":  s.get("facilitySubtype", {}).get("name", "?"),
+            "amount": s.get("amount", "?"),
+        })
+
+    if not available:
+        return "🔍 <b>No slots available right now</b> (excluding 5–6 AM)."
+
+    lines = "\n".join(
+        f"• {a['date']}  |  {a['slot']}  |  {a['court']}  |  ₹{a['amount']}"
+        for a in available
+    )
+    return (
+        f"🏸 <b>{len(available)} slot(s) available:</b>\n\n"
+        f"{lines}\n\n"
+        f"👉 https://reczone.mcgm.gov.in"
+    )
+
+
+# ── Scheduled check — alerts only on NEW slots ─────────────────────────────────
 
 def check_slots():
     print(f"[{ts()}] Polling API…")
@@ -125,7 +164,6 @@ def check_slots():
         court     = s.get("facilitySubtype", {}).get("name", "?")
         amount    = s.get("amount", "?")
 
-        # Mark 5-6 AM slots as seen without alerting
         if slot_time == SKIP_SLOT:
             seen.add(slot_id)
             continue
@@ -148,10 +186,35 @@ def check_slots():
             f"{lines}\n\n"
             f"👉 https://reczone.mcgm.gov.in"
         )
-        print(f"[{ts()}] 🔔 {len(new_alerts)} new slot(s) found, sending Telegram alert.")
+        print(f"[{ts()}] 🔔 {len(new_alerts)} new slot(s) found, sending alert.")
         send_telegram(msg)
     else:
         print(f"[{ts()}] No new slots. Seen: {len(seen)} slots.")
+
+
+# ── Scheduler thread ───────────────────────────────────────────────────────────
+
+def run_scheduler():
+    check_slots()  # immediate check on startup
+    schedule.every(POLL_EVERY).minutes.do(check_slots)
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
+
+
+# ── Telegram listener — ANY message triggers fresh fetch ──────────────────────
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+
+    user = update.message.from_user.first_name or "Someone"
+    print(f"[{ts()}] 📩 Message from {user} — triggering fetch.")
+
+    await update.message.reply_text("🔄 Fetching slots…")
+
+    result = await asyncio.get_event_loop().run_in_executor(None, fetch_all_slots)
+    await update.message.reply_text(result, parse_mode="HTML")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -164,22 +227,18 @@ if __name__ == "__main__":
     print(f"  Skipping: {SKIP_SLOT}")
     print("=" * 60)
 
-    if "YOUR_BOT" in TELEGRAM_TOKEN or "YOUR_CHAT" in TELEGRAM_CHAT_ID:
-        print("\n❌ ERROR: Please set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in the script first!\n")
-        exit(1)
-
-    # Send a startup confirmation to Telegram
+    # Send startup confirmation
     send_telegram(
         f"✅ <b>RecZone Monitor started!</b>\n"
         f"Checking every {POLL_EVERY} mins for member <code>{MEMBER_ID}</code>.\n"
-        f"You'll be notified of any new non-5AM slots."
+        f"Send any message in this group to fetch all current slots."
     )
 
-    check_slots()  # run immediately on start
+    # Run scheduler in background thread
+    threading.Thread(target=run_scheduler, daemon=True).start()
 
-    schedule.every(POLL_EVERY).minutes.do(check_slots)
-    print(f"\n[{ts()}] Scheduler running. Press Ctrl+C to stop.\n")
-
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
+    # Run Telegram bot listener (blocking — runs in main thread)
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print(f"\n[{ts()}] Bot listening for messages. Press Ctrl+C to stop.\n")
+    app.run_polling()
