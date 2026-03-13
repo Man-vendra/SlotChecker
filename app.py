@@ -68,6 +68,14 @@ def load_seen(filepath):
 def save_seen(filepath, seen):
     filepath.write_text(json.dumps(list(seen)))
 
+def is_member_slot_available(s):
+    """
+    A member slot is available if:
+    - isBooked is not True  (booked slots have isBooked=True and no id/slot/amount)
+    - AND it has an actual bookable slot (has 'id' and 'slot' fields)
+    """
+    return not s.get("isBooked", False) and s.get("id") and s.get("slot")
+
 
 # ── Telegram ───────────────────────────────────────────────────────────────────
 
@@ -207,11 +215,11 @@ def fetch_all_slots() -> str:
     if member_slots:
         filtered = [
             s for s in member_slots
-            if not s.get("isBooked") and s.get("slot") != SKIP_SLOT
+            if is_member_slot_available(s) and s.get("slot") != SKIP_SLOT
         ]
         sorted_member = sorted(
             filtered,
-            key=lambda x: x.get("dateOfBooking", {}).get("formatted", "")
+            key=lambda x: x.get("dateOfBooking", {}).get("date", "")  # sort by YYYY-MM-DD for correct order
         )
         current_date = None
         for s in sorted_member:
@@ -270,7 +278,8 @@ def check_slots():
 
     if member_slots:
         for s in member_slots:
-            if s.get("isBooked"):
+            # Use same availability check: must have id+slot and not be booked
+            if not is_member_slot_available(s):
                 continue
             slot_id   = s.get("id")
             slot_time = s.get("slot", "")
@@ -368,13 +377,6 @@ if __name__ == "__main__":
     print(f"  Skipping: {SKIP_SLOT}")
     print(f"  Subtypes: {SUBTYPES}")
     print("=" * 60)
-
-    send_telegram(
-        f"✅ <b>RecZone Monitor started!</b>\n"
-        f"Checking every {POLL_EVERY} mins for member <code>{MEMBER_ID}</code>.\n"
-        f"Monitoring courts: {SUBTYPES}\n"
-        f"Send any message to fetch all current slots."
-    )
 
     threading.Thread(target=run_scheduler, daemon=True).start()
 
