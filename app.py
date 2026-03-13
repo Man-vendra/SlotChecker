@@ -107,16 +107,40 @@ def fetch_member_slots():
         "no_slot_preference":    (None, "1"),
         "no_subtype_preference": (None, "1"),
     }
+    print(f"[{ts()}] 🔍 [Member] Step 1: Sending request for member {MEMBER_ID}…")
     try:
         resp = requests.post(url, headers=HEADERS, files=files, timeout=15)
+        print(f"[{ts()}] 📡 [Member] Step 2: Got HTTP {resp.status_code}")
         resp.raise_for_status()
         data = resp.json()
-        if data.get("code") != 200:
-            print(f"[{ts()}] ⚠️  Member API code {data.get('code')}")
+        api_code = data.get("code")
+        print(f"[{ts()}] 📦 [Member] Step 3: API response code = {api_code}")
+        if api_code != 200:
+            print(f"[{ts()}] ⚠️  [Member] Step 3 FAILED: Unexpected code {api_code}")
             return None
-        return data.get("data", [])
+        raw = data.get("data", [])
+        print(f"[{ts()}] 📋 [Member] Step 4: Total entries returned = {len(raw)}")
+        for entry in raw:
+            sr   = entry.get("srNo", "?")
+            date = entry.get("dateOfBooking", {}).get("formatted", "?")
+            if entry.get("isBooked"):
+                print(f"[{ts()}]    [{sr}] 🔒 {date} — {entry.get('message', 'Already booked')}")
+            else:
+                print(f"[{ts()}]    [{sr}] 🟢 {date} — {entry.get('slot', '?')}  |  "
+                      f"{entry.get('facilitySubtype', {}).get('name', '?')}  |  ₹{entry.get('amount', '?')}")
+        available = [s for s in raw if is_member_slot_available(s) and s.get("slot") != SKIP_SLOT]
+        booked    = [s for s in raw if s.get("isBooked")]
+        skipped   = [s for s in raw if is_member_slot_available(s) and s.get("slot") == SKIP_SLOT]
+        print(f"[{ts()}] ✅ [Member] Step 5: Breakdown → "
+              f"Available: {len(available)}  |  Already booked: {len(booked)}  |  Skipped (5AM): {len(skipped)}")
+        for s in available:
+            print(f"[{ts()}]    📌 {s.get('dateOfBooking', {}).get('formatted', '?')}  "
+                  f"{s.get('slot', '?')}  |  "
+                  f"{s.get('facilitySubtype', {}).get('name', '?')}  |  "
+                  f"₹{s.get('amount', '?')}")
+        return raw
     except Exception as e:
-        print(f"[{ts()}] ❌ Member fetch error: {e}")
+        print(f"[{ts()}] ❌ [Member] Fetch error: {e}")
         return None
 
 
